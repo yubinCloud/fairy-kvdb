@@ -1,8 +1,14 @@
 package fairy_kvdb
 
 import (
+	"errors"
 	"fairy-kvdb/data"
 	"fairy-kvdb/index"
+	"io"
+	"os"
+	"sort"
+	"strconv"
+	"strings"
 	"sync"
 )
 
@@ -13,6 +19,39 @@ type DB struct {
 	activeFile *data.DataFile            // 当前活跃的数据文件，可以用于写入
 	olderFiles map[uint32]*data.DataFile // 旧的数据文件，只能用于读取
 	index      index.Indexer
+}
+
+// Open 打开存储引擎实例
+func Open(options Options) (*DB, error) {
+	// 检查配置项
+	if err := checkOptions(&options); err != nil {
+		return nil, err
+	}
+	// 判断数据目录是否存在，如果不存在则创建这个目录
+	if _, err := os.Stat(options.DataDir); os.IsNotExist(err) {
+		if err := os.MkdirAll(options.DataDir, os.ModePerm); err != nil {
+			return nil, err
+		}
+	}
+	// 初始化索引
+	idx := index.NewIndexer(index.TypeEnum(options.IndexType))
+	// 初始化数据库实例
+	db := &DB{
+		options:    options,
+		mu:         new(sync.RWMutex),
+		olderFiles: make(map[uint32]*data.DataFile),
+		index:      idx,
+	}
+	// 加载数据文件
+	fileIds, err := db.loadDataFiles()
+	if err != nil {
+		return nil, err
+	}
+	// 从数据文件中加载索引
+	if err := db.loadIndexFromDataFiles(fileIds); err != nil {
+		return nil, err
+	}
+	return db, nil
 }
 
 // Put 写入 key-value 数据，key 不能为空
@@ -64,7 +103,7 @@ func (db *DB) Get(key []byte) ([]byte, error) {
 		return nil, ErrorDataFileNotFound
 	}
 	// 根据 offset 读取数据
-	record, err := dataFile.ReadLogRecord(pos.Offset)
+	record, _, err := dataFile.ReadLogRecord(pos.Offset)
 	if err != nil {
 		return nil, err
 	}
@@ -134,5 +173,105 @@ func (db *DB) setActiveFile() error {
 		return err
 	}
 	db.activeFile = dataFile
+	return nil
+}
+
+func (db *DB) loadDataFiles() (fileIds []uint32, err error) {
+	dirEntries, err := os.ReadDir(db.options.DataDir)
+	if err != nil {
+		return fileIds, err
+	}
+
+	// 遍历数据目录下的文件，找到所有以 `.data` 结尾的文件
+	for _, entry := range dirEntries {
+		if strings.HasSuffix(entry.Name(), data.DataFileNameSuffix) {
+			splitNames := strings.Split(entry.Name(), ".")
+			fileId, err := strconv.Atoi(splitNames[0])
+			if err != nil {
+				return fileIds, ErrorDataFileCorrupt
+			}
+			fileIds = append(fileIds, uint32(fileId))
+		}
+	}
+
+	// 对文件 ID 进行排序，从小到大依次加载
+	sort.Slice(fileIds, func(i, j int) bool {
+		return fileIds[i] < fileIds[j]
+	})
+
+	// 遍历文件 ID，加载数据文件
+	for i, fileId := range fileIds {
+		dataFile, err := data.OpenDataFile(db.options.DataDir, fileId)
+		if err != nil {
+			return fileIds, err
+		}
+		if i == len(fileIds)-1 {
+			db.activeFile = dataFile
+		} else {
+			db.olderFiles[fileId] = dataFile
+		}
+	}
+
+	return fileIds, nil
+}
+
+// 从数据文件中加载索引
+// 遍历所有的数据文件，将 LogRecordPos 加载到内存索引中
+func (db *DB) loadIndexFromDataFiles(fileIds []uint32) error {
+	// 如果没有数据文件，则直接返回
+	if len(fileIds) == 0 {
+		return nil
+	}
+	// 遍历所有的数据文件
+	for _, fid := range fileIds {
+		var dataFile *data.DataFile
+		// fid -> dataFile
+		if fid == db.activeFile.FileId {
+			dataFile = db.activeFile
+		} else {
+			dataFile = db.olderFiles[fid]
+		}
+		// load index from one data file
+		offset, err := db.loadIndexFromOneDataFile(dataFile)
+		if err != nil {
+			return err
+		}
+		// 如果当前是活跃文件，则更新 WriteOffset
+		if fid == db.activeFile.FileId {
+			db.activeFile.WriteOffset = offset
+		}
+	}
+	return nil
+}
+
+func (db *DB) loadIndexFromOneDataFile(dataFile *data.DataFile) (int64, error) {
+	var offset int64 = 0
+	for {
+		record, length, err := dataFile.ReadLogRecord(offset)
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return offset, err
+		}
+		pos := data.LogRecordPos{Fid: dataFile.FileId, Offset: offset}
+		if record.Type == data.LogRecordNormal {
+			db.index.Put(record.Key, &pos)
+		} else {
+			db.index.Delete(record.Key)
+		}
+		// 移动 offset
+		offset += length
+	}
+	return offset, nil
+}
+
+func checkOptions(options *Options) error {
+	if options.DataDir == "" {
+		return errors.New("data dir is empty")
+	}
+	if options.MaxFileSize <= 0 {
+		return errors.New("max file size is invalid")
+	}
 	return nil
 }

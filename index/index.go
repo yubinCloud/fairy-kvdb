@@ -15,3 +15,23 @@ type Indexer interface {
 	// Delete 删除 key
 	Delete(key []byte) bool
 }
+
+type TypeEnum int8
+
+const (
+	BTreeIndex TypeEnum = iota // BTree 索引
+	ARTIndex                   // ART 自适应基数树索引
+
+)
+
+// NewIndexer 根据类型初始化索引
+func NewIndexer(indexType TypeEnum) Indexer {
+	switch indexType {
+	case BTreeIndex:
+		return NewBTree()
+	case ARTIndex:
+		return nil
+	default:
+		panic("unknown index type")
+	}
+}
