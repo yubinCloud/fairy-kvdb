@@ -79,6 +79,33 @@ func (db *DB) Put(key []byte, value []byte) error {
 	return nil
 }
 
+// Delete 根据 key 删除对应的数据
+func (db *DB) Delete(key []byte) error {
+	// 判断 key 的有效性
+	if len(key) == 0 {
+		return ErrorKeyEmpty
+	}
+	// 检查 key 是否存在，不存在则直接返回
+	if pos := db.index.Get(key); pos == nil {
+		return ErrorKeyNotFound
+	}
+	// 构造 LogRecord 结构体
+	record := &data.LogRecord{
+		Key:  key,
+		Type: data.LogRecordDelete,
+	}
+	// 将 LogRecord 写入到数据文件中
+	_, err := db.appendLogRecord(record)
+	if err != nil {
+		return err
+	}
+	// 将 key 从内存索引中删除
+	if ok := db.index.Delete(key); !ok {
+		return ErrorIndexUpdateFailed
+	}
+	return nil
+}
+
 func (db *DB) Get(key []byte) ([]byte, error) {
 	// 判断 key 的有效性
 	if len(key) == 0 {
@@ -255,10 +282,14 @@ func (db *DB) loadIndexFromOneDataFile(dataFile *data.DataFile) (int64, error) {
 			return offset, err
 		}
 		pos := data.LogRecordPos{Fid: dataFile.FileId, Offset: offset}
+		var ok bool
 		if record.Type == data.LogRecordNormal {
-			db.index.Put(record.Key, &pos)
+			ok = db.index.Put(record.Key, &pos)
 		} else {
-			db.index.Delete(record.Key)
+			ok = db.index.Delete(record.Key)
+		}
+		if !ok {
+			return offset, ErrorIndexUpdateFailed
 		}
 		// 移动 offset
 		offset += length
