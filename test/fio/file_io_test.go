@@ -2,38 +2,22 @@ package fio
 
 import (
 	"fairy-kvdb/fio"
+	"fairy-kvdb/test"
 	"github.com/stretchr/testify/assert"
-	"os"
 	"path/filepath"
 	"testing"
 )
 
-const tempFilePath = "a.data"
-
-func removeTempFile() {
-	if err := os.RemoveAll(tempFilePath); err != nil {
-		panic(err)
-	}
-}
-
-func destroyFile(fileIo *fio.FileIO) {
-	err := fileIo.Close()
-	if err != nil {
-		return
-	}
-	removeTempFile()
-}
-
 func TestNewFileIOManager(t *testing.T) {
-	fileIo, err := fio.NewFileIOManager(filepath.Join(tempFilePath))
-	defer destroyFile(fileIo)
+	fileIo, err := fio.NewFileIOManager(filepath.Join(test.TempFilePath))
+	defer test.DestroyFile(fileIo)
 	assert.Nil(t, err)
 	assert.NotNil(t, fileIo)
 }
 
 func TestFileIO_Write(t *testing.T) {
-	fileIo, err := fio.NewFileIOManager(filepath.Join(tempFilePath))
-	defer destroyFile(fileIo)
+	fileIo, err := fio.NewFileIOManager(filepath.Join(test.TempFilePath))
+	defer test.DestroyFile(fileIo)
 	assert.Nil(t, err)
 	assert.NotNil(t, fileIo)
 
@@ -48,8 +32,8 @@ func TestFileIO_Write(t *testing.T) {
 }
 
 func TestFileIO_Read(t *testing.T) {
-	fileIo, err := fio.NewFileIOManager(filepath.Join(tempFilePath))
-	defer destroyFile(fileIo)
+	fileIo, err := fio.NewFileIOManager(filepath.Join(test.TempFilePath))
+	defer test.DestroyFile(fileIo)
 	assert.Nil(t, err)
 	assert.NotNil(t, fileIo)
 
@@ -66,8 +50,8 @@ func TestFileIO_Read(t *testing.T) {
 }
 
 func TestFileIO_Sync(t *testing.T) {
-	fileIo, err := fio.NewFileIOManager(filepath.Join(tempFilePath))
-	defer destroyFile(fileIo)
+	fileIo, err := fio.NewFileIOManager(filepath.Join(test.TempFilePath))
+	defer test.DestroyFile(fileIo)
 	assert.Nil(t, err)
 	assert.NotNil(t, fileIo)
 
@@ -81,8 +65,8 @@ func TestFileIO_Sync(t *testing.T) {
 }
 
 func TestFileIO_Close(t *testing.T) {
-	fileIo, err := fio.NewFileIOManager(filepath.Join(tempFilePath))
-	defer removeTempFile()
+	fileIo, err := fio.NewFileIOManager(filepath.Join(test.TempFilePath))
+	defer test.RemoveTempFile()
 	assert.Nil(t, err)
 	assert.NotNil(t, fileIo)
 

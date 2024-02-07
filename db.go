@@ -211,7 +211,7 @@ func (db *DB) loadDataFiles() (fileIds []uint32, err error) {
 
 	// 遍历数据目录下的文件，找到所有以 `.data` 结尾的文件
 	for _, entry := range dirEntries {
-		if strings.HasSuffix(entry.Name(), data.DataFileNameSuffix) {
+		if strings.HasSuffix(entry.Name(), data.NameSuffix) {
 			splitNames := strings.Split(entry.Name(), ".")
 			fileId, err := strconv.Atoi(splitNames[0])
 			if err != nil {
