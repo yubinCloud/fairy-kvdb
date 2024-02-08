@@ -54,13 +54,13 @@ func (df *DataFile) ReadLogRecord(offset int64) (record *LogRecord, recordSize i
 	if header == nil {
 		return nil, 0, io.EOF // 表示已经读取完了，所以返回 EOF
 	}
-	if header.crc == 0 && header.keySize == 0 && header.valueSize == 0 {
+	if header.Crc == 0 && header.KeySize == 0 && header.ValueSize == 0 {
 		return nil, 0, io.EOF // 表示已经读取完了，所以返回 EOF
 	}
 	// 取出 key 和 value 的长度
-	keySize, valueSize := int64(header.keySize), int64(header.valueSize)
+	keySize, valueSize := int64(header.KeySize), int64(header.ValueSize)
 	recordSize = headerSize + keySize + valueSize
-	record = &LogRecord{Type: header.recType}
+	record = &LogRecord{Type: header.RecType}
 	// 读取用户实际存储的 kv
 	if keySize > 0 || valueSize > 0 {
 		recordBuf, err := df.readNBytes(keySize+valueSize, offset+headerSize)
@@ -72,8 +72,8 @@ func (df *DataFile) ReadLogRecord(offset int64) (record *LogRecord, recordSize i
 		record.Value = recordBuf[keySize:]
 	}
 	// 校验 CRC
-	crc := computeCRC(record, headerBuf[:headerSize])
-	if crc != header.crc {
+	crc := ComputeCRC(record, headerBuf[4:headerSize])
+	if crc != header.Crc {
 		return nil, 0, ErrorInvalidCRC
 	}
 	return record, recordSize, nil
