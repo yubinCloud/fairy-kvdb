@@ -14,6 +14,12 @@ type Indexer interface {
 
 	// Delete 删除 key
 	Delete(key []byte) bool
+
+	// Size 返回索引中的数据量
+	Size() int
+
+	// Iterator 返回一个迭代器
+	Iterator(reverse bool) Iterator
 }
 
 type TypeEnum int8
@@ -34,4 +40,28 @@ func NewIndexer(indexType TypeEnum) Indexer {
 	default:
 		panic("unknown index type")
 	}
+}
+
+// Iterator 通用索引迭代器
+type Iterator interface {
+	// Rewind 重新回到迭代器的起点，即第一个数据
+	Rewind()
+
+	// Seek 根据传入的 key 查找到第一个大于（或小于）等于的目标 key，根据从这个 key 开始遍历
+	Seek(key []byte)
+
+	// Next 跳转到下一个 key
+	Next()
+
+	// Valid 判断迭代器是否有效，即是否已经遍历完了
+	Valid() bool
+
+	// Key 当前遍历位置的 key 数据
+	Key() []byte
+
+	// Value 当前遍历位置的 value 数据
+	Value() *data.LogRecordPos
+
+	// Close 关闭迭代器
+	Close()
 }

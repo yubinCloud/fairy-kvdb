@@ -118,14 +118,83 @@ func (db *DB) Get(key []byte) ([]byte, error) {
 		return nil, ErrorKeyNotFound
 	}
 
-	// 根据文件 ID 找到对应的数据文件
+	record, err := db.readLogRecord(pos)
+	if err != nil {
+		return nil, err
+	}
+	return record.Value, nil
+}
+
+// ListKeys 返回所有的 key
+func (db *DB) ListKeys() [][]byte {
+	iter := db.index.Iterator(false)
+	defer iter.Close()
+	keys := make([][]byte, db.index.Size())
+	idx := 0
+	for iter.Rewind(); iter.Valid(); iter.Next() {
+		keys[idx] = iter.Key()
+		idx++
+	}
+	return keys
+}
+
+// Fold 遍历所有的 key-value 数据，并执行用户指定的操作，函数返回 false 时终止
+func (db *DB) Fold(fn func(key []byte, value []byte) bool) error {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+
+	iter := db.index.Iterator(false)
+	for iter.Rewind(); iter.Valid(); iter.Next() {
+		pos := iter.Value()
+		record, err := db.readLogRecord(pos)
+		if err != nil {
+			return err
+		}
+		if !fn(record.Key, record.Value) {
+			break
+		}
+	}
+	return nil
+}
+
+// Close 关闭存储引擎实例
+func (db *DB) Close() error {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+
+	// 关闭所有的数据文件
+	for _, dataFile := range db.olderFiles {
+		if err := dataFile.Close(); err != nil {
+			return err
+		}
+	}
+	if db.activeFile != nil {
+		if err := db.activeFile.Close(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Sync 将数据持久化到磁盘中
+func (db *DB) Sync() error {
+	if db.activeFile != nil {
+		return nil
+	}
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	return db.activeFile.Sync()
+}
+
+// readLogRecord 根据 LogRecordPos 读取 LogRecord
+func (db *DB) readLogRecord(pos *data.LogRecordPos) (*data.LogRecord, error) {
 	var dataFile *data.DataFile
 	if db.activeFile.FileId == pos.Fid {
 		dataFile = db.activeFile
 	} else {
 		dataFile = db.olderFiles[pos.Fid]
 	}
-	// 如果数据文件不存在，则返回错误
+	// 如果数据文件不存在，则直接返回错误
 	if dataFile == nil {
 		return nil, ErrorDataFileNotFound
 	}
@@ -134,7 +203,7 @@ func (db *DB) Get(key []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return record.Value, nil
+	return record, nil
 }
 
 // 追加数据到活跃文件末尾
@@ -170,7 +239,6 @@ func (db *DB) appendLogRecord(logRecord *data.LogRecord) (*data.LogRecordPos, er
 	if err := db.activeFile.Write(encoded); err != nil {
 		return nil, err
 	}
-	db.activeFile.WriteOffset += length
 
 	// 根据用户配置的持久化策略，将 LogRecordPos 持久化到磁盘中
 	if db.options.SyncEveryWrite {
