@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 )
 
 // DB 存储引擎实例
@@ -19,6 +20,7 @@ type DB struct {
 	activeFile *data.DataFile            // 当前活跃的数据文件，可以用于写入
 	olderFiles map[uint32]*data.DataFile // 旧的数据文件，只能用于读取
 	index      index.Indexer
+	nextBTSN   uint64 // 下一个 Batch Transaction Sequence Number，全局递增
 }
 
 // Open 打开存储引擎实例
@@ -41,6 +43,7 @@ func Open(options Options) (*DB, error) {
 		mu:         new(sync.RWMutex),
 		olderFiles: make(map[uint32]*data.DataFile),
 		index:      idx,
+		nextBTSN:   1,
 	}
 	// 加载数据文件
 	fileIds, err := db.loadDataFiles()
@@ -65,8 +68,11 @@ func (db *DB) Put(key []byte, value []byte) error {
 		Key:   key,
 		Value: value,
 		Type:  data.LogRecordNormal,
+		Btsn:  data.NoTxnBTSN,
 	}
 	// 将 LogRecord 写入到数据文件中
+	db.mu.Lock()
+	defer db.mu.Unlock()
 	pos, err := db.appendLogRecord(record)
 	if err != nil {
 		return err
@@ -93,8 +99,11 @@ func (db *DB) Delete(key []byte) error {
 	record := &data.LogRecord{
 		Key:  key,
 		Type: data.LogRecordDelete,
+		Btsn: data.NoTxnBTSN,
 	}
 	// 将 LogRecord 写入到数据文件中
+	db.mu.Lock()
+	defer db.mu.Unlock()
 	_, err := db.appendLogRecord(record)
 	if err != nil {
 		return err
@@ -186,6 +195,12 @@ func (db *DB) Sync() error {
 	return db.activeFile.Sync()
 }
 
+// FetchNextBTSN 获取下一个 BTSN
+func (db *DB) FetchNextBTSN() uint64 {
+	nextLSN := atomic.AddUint64(&db.nextBTSN, 1)
+	return nextLSN
+}
+
 // readLogRecord 根据 LogRecordPos 读取 LogRecord
 func (db *DB) readLogRecord(pos *data.LogRecordPos) (*data.LogRecord, error) {
 	var dataFile *data.DataFile
@@ -208,9 +223,6 @@ func (db *DB) readLogRecord(pos *data.LogRecordPos) (*data.LogRecord, error) {
 
 // 追加数据到活跃文件末尾
 func (db *DB) appendLogRecord(logRecord *data.LogRecord) (*data.LogRecordPos, error) {
-	db.mu.Lock()
-	defer db.mu.Unlock()
-
 	// 判断当前的活跃文件是否存在，因为数据库在没有写入数据的时候是没有文件生成的
 	if db.activeFile == nil {
 		if err := db.setActiveFile(); err != nil {
@@ -271,6 +283,7 @@ func (db *DB) setActiveFile() error {
 	return nil
 }
 
+// 加载数据文件，并所有文件打开，并保存 fileId
 func (db *DB) loadDataFiles() (fileIds []uint32, err error) {
 	dirEntries, err := os.ReadDir(db.options.DataDir)
 	if err != nil {
@@ -310,12 +323,22 @@ func (db *DB) loadDataFiles() (fileIds []uint32, err error) {
 	return fileIds, nil
 }
 
+// 数据库在打开时加载过程的上下文
+type dbOpenLoadingContext struct {
+	batchTxns map[uint64][]data.BatchTxnRecord
+	maxBtsn   uint64
+}
+
 // 从数据文件中加载索引
 // 遍历所有的数据文件，将 LogRecordPos 加载到内存索引中
 func (db *DB) loadIndexFromDataFiles(fileIds []uint32) error {
 	// 如果没有数据文件，则直接返回
 	if len(fileIds) == 0 {
 		return nil
+	}
+	loadContext := dbOpenLoadingContext{
+		batchTxns: make(map[uint64][]data.BatchTxnRecord),
+		maxBtsn:   0,
 	}
 	// 遍历所有的数据文件
 	for _, fid := range fileIds {
@@ -327,7 +350,7 @@ func (db *DB) loadIndexFromDataFiles(fileIds []uint32) error {
 			dataFile = db.olderFiles[fid]
 		}
 		// load index from one data file
-		offset, err := db.loadIndexFromOneDataFile(dataFile)
+		offset, err := db.loadIndexFromOneDataFile(dataFile, &loadContext)
 		if err != nil {
 			return err
 		}
@@ -336,10 +359,12 @@ func (db *DB) loadIndexFromDataFiles(fileIds []uint32) error {
 			db.activeFile.WriteOffset = offset
 		}
 	}
+	// 更新 db 的 btsn
+	db.nextBTSN = loadContext.maxBtsn + 1
 	return nil
 }
 
-func (db *DB) loadIndexFromOneDataFile(dataFile *data.DataFile) (int64, error) {
+func (db *DB) loadIndexFromOneDataFile(dataFile *data.DataFile, loadContext *dbOpenLoadingContext) (int64, error) {
 	var offset int64 = 0
 	for {
 		record, length, err := dataFile.ReadLogRecord(offset)
@@ -349,15 +374,32 @@ func (db *DB) loadIndexFromOneDataFile(dataFile *data.DataFile) (int64, error) {
 			}
 			return offset, err
 		}
-		pos := data.LogRecordPos{Fid: dataFile.FileId, Offset: offset}
-		var ok bool
-		if record.Type == data.LogRecordNormal {
-			ok = db.index.Put(record.Key, &pos)
-		} else {
-			ok = db.index.Delete(record.Key)
+		// 先更新 BTSN
+		btsn := record.Btsn
+		if btsn > loadContext.maxBtsn {
+			loadContext.maxBtsn = btsn
 		}
-		if !ok {
-			return offset, ErrorIndexUpdateFailed
+
+		if record.Btsn == data.NoTxnBTSN { // 对于非 batch txn 操作，则直接更新索引
+			pos := data.LogRecordPos{Fid: dataFile.FileId, Offset: offset}
+			ok := db.redoLogRecord(record, &pos)
+			if !ok {
+				return offset, ErrorIndexUpdateFailed
+			}
+		} else { // 对于 batch txn 操作，则根据是否为 End 来决定 redo 还是暂存
+			batchTxns := loadContext.batchTxns
+			if record.Type == data.LogRecordBatchEnd {
+				txnRecords := batchTxns[btsn]
+				for _, txnRecord := range txnRecords {
+					db.redoLogRecord(txnRecord.Record, txnRecord.Pos)
+				}
+				delete(batchTxns, btsn)
+			} else {
+				batchTxns[btsn] = append(batchTxns[btsn], data.BatchTxnRecord{
+					Record: record,
+					Pos:    &data.LogRecordPos{Fid: dataFile.FileId, Offset: offset},
+				})
+			}
 		}
 		// 移动 offset
 		offset += length
@@ -365,6 +407,16 @@ func (db *DB) loadIndexFromOneDataFile(dataFile *data.DataFile) (int64, error) {
 	return offset, nil
 }
 
+func (db *DB) redoLogRecord(record *data.LogRecord, pos *data.LogRecordPos) bool {
+	if record.Type == data.LogRecordNormal {
+		return db.index.Put(record.Key, pos)
+	} else if record.Type == data.LogRecordDelete {
+		return db.index.Delete(record.Key)
+	}
+	return false
+}
+
+// 检查配置项
 func checkOptions(options *Options) error {
 	if options.DataDir == "" {
 		return errors.New("data dir is empty")

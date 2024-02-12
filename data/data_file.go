@@ -60,7 +60,11 @@ func (df *DataFile) ReadLogRecord(offset int64) (record *LogRecord, recordSize i
 	// 取出 key 和 value 的长度
 	keySize, valueSize := int64(header.KeySize), int64(header.ValueSize)
 	recordSize = headerSize + keySize + valueSize
-	record = &LogRecord{Type: header.RecType}
+	// 初始化 LogRecord，并根据 header 填充 record
+	record = &LogRecord{
+		Type: header.RecType,
+		Btsn: header.Btsn,
+	}
 	// 读取用户实际存储的 kv
 	if keySize > 0 || valueSize > 0 {
 		recordBuf, err := df.readNBytes(keySize+valueSize, offset+headerSize)
