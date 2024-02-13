@@ -8,16 +8,6 @@ import (
 	"sync"
 )
 
-// BTreeItem 在 Google 的 btree 数据结构中存储的数据元素
-type BTreeItem struct {
-	key []byte
-	pos *data.LogRecordPos
-}
-
-func (a *BTreeItem) Less(b btree.Item) bool {
-	return bytes.Compare(a.key, b.(*BTreeItem).key) == 1
-}
-
 // BTree btree index，封装了 Google 的 btree kv
 type BTree struct {
 	tree *btree.BTree
@@ -33,7 +23,7 @@ func NewBTree() *BTree {
 }
 
 func (bt *BTree) Put(key []byte, pos *data.LogRecordPos) bool {
-	itm := &BTreeItem{
+	itm := &IndexItem{
 		key: key,
 		pos: pos,
 	}
@@ -44,7 +34,7 @@ func (bt *BTree) Put(key []byte, pos *data.LogRecordPos) bool {
 }
 
 func (bt *BTree) Get(key []byte) *data.LogRecordPos {
-	query := &BTreeItem{
+	query := &IndexItem{
 		key: key,
 	}
 	bt.mu.RLock()
@@ -53,11 +43,11 @@ func (bt *BTree) Get(key []byte) *data.LogRecordPos {
 	if itm == nil {
 		return nil
 	}
-	return itm.(*BTreeItem).pos
+	return itm.(*IndexItem).pos
 }
 
 func (bt *BTree) Delete(key []byte) bool {
-	query := &BTreeItem{key: key}
+	query := &IndexItem{key: key}
 	bt.mu.Lock()
 	oldItem := bt.tree.Delete(query)
 	bt.mu.Unlock()
@@ -86,17 +76,17 @@ func (bt *BTree) Iterator(reverse bool) Iterator {
 type BTreeIterator struct {
 	currIndex int          // 当前遍历的下标位置
 	reverse   bool         // 是否是逆序遍历
-	values    []*BTreeItem // key + 位置索引信息
+	values    []*IndexItem // key + 位置索引信息
 }
 
 // NewBTreeIterator 初始化 BTree 索引迭代器
 func NewBTreeIterator(bt *BTree, reverse bool) *BTreeIterator {
 	var idx int
-	values := make([]*BTreeItem, bt.tree.Len())
+	values := make([]*IndexItem, bt.tree.Len())
 
 	// 将 btree 索引中的数据都取出来
 	saveValuesHandler := func(item btree.Item) bool {
-		values[idx] = item.(*BTreeItem)
+		values[idx] = item.(*IndexItem)
 		idx++
 		return true
 	}
