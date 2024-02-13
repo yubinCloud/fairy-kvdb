@@ -10,4 +10,5 @@ var (
 	ErrorDataFileCorrupt        = errors.New("data file corrupt")
 	ErrorInvalidCRC             = errors.New("invalid crc")
 	ErrorExceedMaxWriteBatchNum = errors.New("exceed max write batch num")
+	ErrorMergeIsProgress        = errors.New("merge is in progress, try again later")
 )

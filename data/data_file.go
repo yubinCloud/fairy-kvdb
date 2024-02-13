@@ -7,7 +7,11 @@ import (
 	"path/filepath"
 )
 
-const NameSuffix = ".data"
+const (
+	NameSuffix            = ".data"
+	HintFileName          = "hint-index"
+	MergeFinishedFileName = "merge-finished"
+)
 
 // DataFile 数据文件
 type DataFile struct {
@@ -16,12 +20,19 @@ type DataFile struct {
 	IoManger    fio.IOManager // IO 管理器
 }
 
+// GetDataFilePath 根据数据目录路径和 file ID 获取数据文件路径
+func GetDataFilePath(dirPath string, fileId uint32) string {
+	return filepath.Join(dirPath, fmt.Sprintf("%09d", fileId)+NameSuffix)
+}
+
 // OpenDataFile 打开一个新的数据文件
 func OpenDataFile(dirPath string, fileId uint32) (*DataFile, error) {
-	fileName := fmt.Sprintf("%09d", fileId) + NameSuffix
-	path := filepath.Join(dirPath, fileName)
-	// 创建一个新的 IOManager
-	ioManager, err := fio.NewIOManager(path)
+	path := GetDataFilePath(dirPath, fileId)
+	return newDataFile(path, fileId)
+}
+
+func newDataFile(filePath string, fileId uint32) (*DataFile, error) {
+	ioManager, err := fio.NewIOManager(filePath)
 	if err != nil {
 		return nil, err
 	}
@@ -108,4 +119,26 @@ func (df *DataFile) readNBytes(n int64, offset int64) ([]byte, error) {
 	buf := make([]byte, n)
 	_, err := df.IoManger.Read(buf, offset)
 	return buf, err
+}
+
+// OpenHintFile 打开一个新的 hint 索引文件
+func OpenHintFile(dirPath string) (*DataFile, error) {
+	filePath := filepath.Join(dirPath, HintFileName)
+	return newDataFile(filePath, 0)
+}
+
+// OpenMergeFinishedFile 打开（或创建）一个新的 merge 完成标志文件
+func OpenMergeFinishedFile(dirPath string) (*DataFile, error) {
+	filePath := filepath.Join(dirPath, MergeFinishedFileName)
+	return newDataFile(filePath, 0)
+}
+
+// WriteHintRecord 写入 hint 索引记录
+func (df *DataFile) WriteHintRecord(key []byte, pos *LogRecordPos) error {
+	record := &LogRecord{
+		Key:   key,
+		Value: EncodeLogRecordPos(pos),
+	}
+	encRecord, _ := EncodeLogRecord(record)
+	return df.Write(encRecord)
 }

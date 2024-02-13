@@ -6,6 +6,7 @@ import (
 	"fairy-kvdb/index"
 	"io"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -21,6 +22,7 @@ type DB struct {
 	olderFiles map[uint32]*data.DataFile // 旧的数据文件，只能用于读取
 	index      index.Indexer
 	nextBTSN   uint64 // 下一个 Batch Transaction Sequence Number，全局递增
+	isMerging  int32  // 是否正在执行 merge 操作（0 表示 false，1 表示 true）
 }
 
 // Open 打开存储引擎实例
@@ -45,9 +47,17 @@ func Open(options Options) (*DB, error) {
 		index:      idx,
 		nextBTSN:   1,
 	}
+	// 在加载数据文件之前，先加载 merge 目录的文件，将 merge 的结果先合并到数据文件目录中
+	if err := db.loadMergeFiles(); err != nil {
+		return nil, err
+	}
 	// 加载数据文件
 	fileIds, err := db.loadDataFiles()
 	if err != nil {
+		return nil, err
+	}
+	// 先从 Hint 文件中加载索引
+	if err := db.loadIndexFromHintFile(); err != nil {
 		return nil, err
 	}
 	// 从数据文件中加载索引
@@ -336,12 +346,26 @@ func (db *DB) loadIndexFromDataFiles(fileIds []uint32) error {
 	if len(fileIds) == 0 {
 		return nil
 	}
+	// 先查看是否发生过 merge
+	hasMerge, nonMergeFileId := false, uint32(0)
+	mergeFinFileName := filepath.Join(db.options.DataDir, data.MergeFinishedFileName)
+	if _, err := os.Stat(mergeFinFileName); err == nil {
+		hasMerge = true
+		nonMergeFileId, err = db.getNonMergeFileId(db.options.DataDir)
+		if err != nil {
+			return err
+		}
+	}
 	loadContext := dbOpenLoadingContext{
 		batchTxns: make(map[uint64][]data.BatchTxnRecord),
 		maxBtsn:   0,
 	}
 	// 遍历所有的数据文件
 	for _, fid := range fileIds {
+		// 首先与 nonMergeFileId 进行比较，如果当前文件 ID 小于 nonMergeFileId，则直接跳过，因为已经通过 Hint 文件加载过了
+		if hasMerge && fid < nonMergeFileId {
+			continue
+		}
 		var dataFile *data.DataFile
 		// fid -> dataFile
 		if fid == db.activeFile.FileId {
