@@ -174,3 +174,17 @@ func TestDB_BPlusTreeIndexDB(t *testing.T) {
 	err = db.Close()
 	assert.Nil(t, err)
 }
+
+func TestDB_FileLock(t *testing.T) {
+	options := fairydb.DefaultOptions
+	ClearDatabaseDir(options.DataDir)
+	db, err := fairydb.Open(options)
+	defer ClearDatabaseDir(options.DataDir)
+	assert.Nil(t, err)
+	assert.NotNil(t, db)
+	db2, err := fairydb.Open(options) // 重复的 open
+	assert.NotNil(t, err)
+	assert.Nil(t, db2)
+	err = db.Close()
+	assert.Nil(t, err)
+}

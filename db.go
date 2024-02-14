@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fairy-kvdb/data"
 	"fairy-kvdb/index"
+	"fmt"
+	"github.com/gofrs/flock"
 	"io"
 	"os"
 	"path/filepath"
@@ -14,6 +16,8 @@ import (
 	"sync/atomic"
 )
 
+const fileLockName = "fairy-kvdb.lock"
+
 // DB 存储引擎实例
 type DB struct {
 	options        Options
@@ -21,10 +25,11 @@ type DB struct {
 	activeFile     *data.DataFile            // 当前活跃的数据文件，可以用于写入
 	olderFiles     map[uint32]*data.DataFile // 旧的数据文件，只能用于读取
 	index          index.Indexer
-	nextBTSN       uint64 // 下一个 Batch Transaction Sequence Number，全局递增
-	isMerging      int32  // 是否正在执行 merge 操作（0 表示 false，1 表示 true）
-	btsnFileExists bool   // 标识 btsn file 是否存在
-	isPureBoot     bool   // 是否是纯净启动，也就是启动时数据目录下没有任何数据
+	nextBTSN       uint64       // 下一个 Batch Transaction Sequence Number，全局递增
+	isMerging      int32        // 是否正在执行 merge 操作（0 表示 false，1 表示 true）
+	btsnFileExists bool         // 标识 btsn file 是否存在
+	isPureBoot     bool         // 是否是纯净启动，也就是启动时数据目录下没有任何数据
+	fileLock       *flock.Flock // 文件锁，保证多进程之间的互斥
 }
 
 // Open 打开存储引擎实例
@@ -48,6 +53,15 @@ func Open(options Options) (*DB, error) {
 	if len(dirEntries) == 0 {
 		isPureBoot = true
 	}
+	// 判断当前数据目录是否正在使用（使用 flock）
+	fileLock := flock.New(filepath.Join(options.DataDir, fileLockName))
+	holdFileLock, err := fileLock.TryLock()
+	if err != nil {
+		return nil, err
+	}
+	if !holdFileLock {
+		return nil, ErrorDatabaseIsUsing
+	}
 	// 初始化索引
 	idx := index.NewIndexer(index.TypeEnum(options.IndexType), options.BPlusTreeIndexOpts)
 	// 初始化数据库实例
@@ -58,6 +72,7 @@ func Open(options Options) (*DB, error) {
 		index:      idx,
 		nextBTSN:   1,
 		isPureBoot: isPureBoot,
+		fileLock:   fileLock,
 	}
 	// 在加载数据文件之前，先加载 merge 目录的文件，将 merge 的结果先合并到数据文件目录中
 	if err := db.loadMergeFiles(); err != nil {
@@ -243,6 +258,10 @@ func (db *DB) Close() error {
 	// 关闭 index
 	if err = db.index.Close(); err != nil {
 		return err
+	}
+	// 关闭 fileLock
+	if err = db.fileLock.Unlock(); err != nil {
+		panic(fmt.Sprintf("failed to unlock the directory, %v", err))
 	}
 	return nil
 }
