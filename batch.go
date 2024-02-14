@@ -2,6 +2,7 @@ package fairy_kvdb
 
 import (
 	"fairy-kvdb/data"
+	"fairy-kvdb/index"
 	"sync"
 )
 
@@ -15,6 +16,9 @@ type WriteBatch struct {
 
 // NewWriteBatch 初始化 WriteBatch
 func (db *DB) NewWriteBatch(options WriteBatchOptions) *WriteBatch {
+	if db.options.IndexType == int8(index.BPlusTreeIndexer) && !db.btsnFileExists && !db.isPureBoot {
+		panic("Cannot use `WriteBatch`. B+Tree index requires btsn file.")
+	}
 	return &WriteBatch{
 		options:       options,
 		mu:            new(sync.Mutex),

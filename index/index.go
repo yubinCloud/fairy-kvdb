@@ -20,23 +20,28 @@ type Indexer interface {
 
 	// Iterator 返回一个迭代器
 	Iterator(reverse bool) Iterator
+
+	// Close 关闭索引
+	Close() error
 }
 
 type TypeEnum int8
 
 const (
-	BTreeIndex TypeEnum = iota // BTree 索引
-	ARTIndex                   // ART 自适应基数树索引
-
+	BTreeIndexer     TypeEnum = iota // BTree 索引
+	ARTIndexer                       // ART 自适应基数树索引
+	BPlusTreeIndexer                 // B+Tree 索引
 )
 
 // NewIndexer 根据类型初始化索引
-func NewIndexer(indexType TypeEnum) Indexer {
+func NewIndexer(indexType TypeEnum, bptOptions *BPlusTreeIndexOptions) Indexer {
 	switch indexType {
-	case BTreeIndex:
+	case BTreeIndexer:
 		return NewBTree()
-	case ARTIndex:
-		return nil
+	case ARTIndexer:
+		return NewAdaptiveRadixTreeIndex()
+	case BPlusTreeIndexer:
+		return NewBPlusTreeIndex(bptOptions)
 	default:
 		panic("unknown index type")
 	}

@@ -71,6 +71,7 @@ func TestAdaptiveRadixTreeIndex_Iterator(t *testing.T) {
 	assert.Equal(t, int64(20), iter.Value().Offset)
 	iter.Next()
 	assert.False(t, iter.Valid())
+	iter.Close()
 	// case: 反序遍历
 	iter2 := artIndex.Iterator(true)
 	assert.NotNil(t, iter2)
@@ -84,4 +85,5 @@ func TestAdaptiveRadixTreeIndex_Iterator(t *testing.T) {
 	assert.Equal(t, int64(12), iter2.Value().Offset)
 	iter2.Next()
 	assert.False(t, iter2.Valid())
+	iter2.Close()
 }

@@ -72,6 +72,10 @@ func (bt *BTree) Iterator(reverse bool) Iterator {
 	return NewBTreeIterator(bt, reverse)
 }
 
+func (bt *BTree) Close() error {
+	return nil
+}
+
 // BTreeIterator BTree 索引迭代器
 type BTreeIterator struct {
 	currIndex int          // 当前遍历的下标位置

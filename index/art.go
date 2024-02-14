@@ -60,6 +60,10 @@ func (art *AdaptiveRadixTreeIndex) Iterator(reverse bool) Iterator {
 	return iter
 }
 
+func (art *AdaptiveRadixTreeIndex) Close() error {
+	return nil
+}
+
 // ArtIterator ART 索引迭代器
 type ArtIterator struct {
 	currIndex int

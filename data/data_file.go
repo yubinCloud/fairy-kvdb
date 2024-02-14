@@ -1,6 +1,7 @@
 package data
 
 import (
+	"encoding/binary"
 	"fairy-kvdb/fio"
 	"fmt"
 	"io"
@@ -11,6 +12,8 @@ const (
 	NameSuffix            = ".data"
 	HintFileName          = "hint-index"
 	MergeFinishedFileName = "merge-finished"
+	BtsnFileName          = "btsn"
+	BtsnFileKey           = "btsn"
 )
 
 // DataFile 数据文件
@@ -141,4 +144,30 @@ func (df *DataFile) WriteHintRecord(key []byte, pos *LogRecordPos) error {
 	}
 	encRecord, _ := EncodeLogRecord(record)
 	return df.Write(encRecord)
+}
+
+// OpenBtsnFile 存储 batch transaction 序列号的文件，用于启动数据库时，数据库能够知道当前的 batch transaction 序列号，从而继续分配
+// 对于 DB 启动时不需要遍历数据日志文件的索引类型，需要借用此文件来存储 batch transaction 序列号，比如 BPlusTreeIndex
+func OpenBtsnFile(dirPath string) (*DataFile, error) {
+	filePath := filepath.Join(dirPath, BtsnFileName)
+	return newDataFile(filePath, 0)
+}
+
+func (df *DataFile) WriteBtsnRecord(btsn uint64) error {
+	buf := make([]byte, 8)
+	binary.BigEndian.PutUint64(buf, btsn)
+	record := &LogRecord{
+		Key:   []byte(BtsnFileKey),
+		Value: buf,
+	}
+	encRecord, _ := EncodeLogRecord(record)
+	return df.Write(encRecord)
+}
+
+func (df *DataFile) ReadBtsnRecord() (uint64, error) {
+	record, _, err := df.ReadLogRecord(0)
+	if err != nil {
+		return 1, err
+	}
+	return binary.BigEndian.Uint64(record.Value), nil
 }

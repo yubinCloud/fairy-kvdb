@@ -163,6 +163,9 @@ func (db *DB) loadMergeFiles() error {
 		if entry.Name() == data.MergeFinishedFileName {
 			mergeFinished = true
 		}
+		if entry.Name() == data.BtsnFileName {
+			continue // BTSN 文件不需要在 merge 时进行移动，它只在 Close 时保存才有意义
+		}
 		mergeFileNames = append(mergeFileNames, entry.Name())
 	}
 	// 没有 merge 完成则直接返回

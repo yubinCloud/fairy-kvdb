@@ -16,13 +16,15 @@ import (
 
 // DB 存储引擎实例
 type DB struct {
-	options    Options
-	mu         *sync.RWMutex
-	activeFile *data.DataFile            // 当前活跃的数据文件，可以用于写入
-	olderFiles map[uint32]*data.DataFile // 旧的数据文件，只能用于读取
-	index      index.Indexer
-	nextBTSN   uint64 // 下一个 Batch Transaction Sequence Number，全局递增
-	isMerging  int32  // 是否正在执行 merge 操作（0 表示 false，1 表示 true）
+	options        Options
+	mu             *sync.RWMutex
+	activeFile     *data.DataFile            // 当前活跃的数据文件，可以用于写入
+	olderFiles     map[uint32]*data.DataFile // 旧的数据文件，只能用于读取
+	index          index.Indexer
+	nextBTSN       uint64 // 下一个 Batch Transaction Sequence Number，全局递增
+	isMerging      int32  // 是否正在执行 merge 操作（0 表示 false，1 表示 true）
+	btsnFileExists bool   // 标识 btsn file 是否存在
+	isPureBoot     bool   // 是否是纯净启动，也就是启动时数据目录下没有任何数据
 }
 
 // Open 打开存储引擎实例
@@ -37,8 +39,17 @@ func Open(options Options) (*DB, error) {
 			return nil, err
 		}
 	}
+	// 判断本次数据库启动是否属于 pure boot，也就是数据目录中没有任何文件
+	isPureBoot := false
+	dirEntries, err := os.ReadDir(options.DataDir)
+	if err != nil {
+		return nil, err
+	}
+	if len(dirEntries) == 0 {
+		isPureBoot = true
+	}
 	// 初始化索引
-	idx := index.NewIndexer(index.TypeEnum(options.IndexType))
+	idx := index.NewIndexer(index.TypeEnum(options.IndexType), options.BPlusTreeIndexOpts)
 	// 初始化数据库实例
 	db := &DB{
 		options:    options,
@@ -46,6 +57,7 @@ func Open(options Options) (*DB, error) {
 		olderFiles: make(map[uint32]*data.DataFile),
 		index:      idx,
 		nextBTSN:   1,
+		isPureBoot: isPureBoot,
 	}
 	// 在加载数据文件之前，先加载 merge 目录的文件，将 merge 的结果先合并到数据文件目录中
 	if err := db.loadMergeFiles(); err != nil {
@@ -56,14 +68,32 @@ func Open(options Options) (*DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	// 先从 Hint 文件中加载索引
-	if err := db.loadIndexFromHintFile(); err != nil {
-		return nil, err
+
+	if options.IndexType != int8(index.BPlusTreeIndexer) { // B+树不需要从数据文件加载索引
+		// 先从 Hint 文件中加载索引
+		if err := db.loadIndexFromHintFile(); err != nil {
+			return nil, err
+		}
+		// 从数据文件中加载索引
+		if err := db.loadIndexFromDataFiles(fileIds); err != nil {
+			return nil, err
+		}
+	} else {
+		// B+树索引需要从 btsn file 中取出保存的 NextBTSN 值
+		if err := db.loadNextBSTN(); err != nil {
+			return nil, err
+		}
+		// 恢复 activeFile 的 WriteOffset
+		if db.activeFile != nil {
+			if sz, err := db.activeFile.IoManger.Size(); err != nil {
+				return nil, err
+			} else {
+				db.activeFile.WriteOffset = sz
+			}
+
+		}
 	}
-	// 从数据文件中加载索引
-	if err := db.loadIndexFromDataFiles(fileIds); err != nil {
-		return nil, err
-	}
+
 	return db, nil
 }
 
@@ -163,6 +193,7 @@ func (db *DB) Fold(fn func(key []byte, value []byte) bool) error {
 	defer db.mu.RUnlock()
 
 	iter := db.index.Iterator(false)
+	defer iter.Close()
 	for iter.Rewind(); iter.Valid(); iter.Next() {
 		pos := iter.Value()
 		record, err := db.readLogRecord(pos)
@@ -181,6 +212,23 @@ func (db *DB) Close() error {
 	db.mu.Lock()
 	defer db.mu.Unlock()
 
+	// 保存当前事务的序列号
+	btsnFile, err := data.OpenBtsnFile(db.options.DataDir)
+	if err != nil {
+		return err
+	}
+	err = btsnFile.WriteBtsnRecord(db.nextBTSN)
+	if err != nil {
+		return err
+	}
+	err = btsnFile.Sync()
+	if err != nil {
+		return err
+	}
+	err = btsnFile.Close()
+	if err != nil {
+		return err
+	}
 	// 关闭所有的数据文件
 	for _, dataFile := range db.olderFiles {
 		if err := dataFile.Close(); err != nil {
@@ -191,6 +239,10 @@ func (db *DB) Close() error {
 		if err := db.activeFile.Close(); err != nil {
 			return err
 		}
+	}
+	// 关闭 index
+	if err = db.index.Close(); err != nil {
+		return err
 	}
 	return nil
 }
@@ -448,5 +500,29 @@ func checkOptions(options *Options) error {
 	if options.MaxFileSize <= 0 {
 		return errors.New("max file size is invalid")
 	}
+	return nil
+}
+
+// 从 BTSN file 中加载 NextBTSN 值
+func (db *DB) loadNextBSTN() error {
+	path := filepath.Join(db.options.DataDir, data.BtsnFileName)
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		db.btsnFileExists = false
+		return nil
+	}
+	db.btsnFileExists = true
+	btsnFile, err := data.OpenBtsnFile(db.options.DataDir)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = btsnFile.Close()
+		_ = os.Remove(path)
+	}()
+	bstn, err := btsnFile.ReadBtsnRecord()
+	if err != nil {
+		return err
+	}
+	db.nextBTSN = bstn
 	return nil
 }

@@ -70,6 +70,7 @@ func TestDB_Iterator_MultiRecords(t *testing.T) {
 	assert.Equal(t, "zhangSan", string(iter.Value()))
 	iter.Next()
 	assert.Equal(t, false, iter.Valid())
+	iter.Close()
 
 	// 测试反向迭代
 	iterOptions2 := fairydb.DefaultIteratorOptions
@@ -86,6 +87,7 @@ func TestDB_Iterator_MultiRecords(t *testing.T) {
 	assert.Equal(t, "18", string(iter2.Value()))
 	iter2.Next()
 	assert.Equal(t, false, iter2.Valid())
+	iter2.Close()
 
 	// 测试指定 prefix 时的正向迭代
 	iterOptions3 := fairydb.DefaultIteratorOptions
@@ -98,6 +100,7 @@ func TestDB_Iterator_MultiRecords(t *testing.T) {
 	assert.Equal(t, "zhangSan", string(iter3.Value()))
 	iter3.Next()
 	assert.Equal(t, false, iter3.Valid())
+	iter3.Close()
 
 	// 测试 seek
 	err = db.Put([]byte("sex"), []byte("1"))
