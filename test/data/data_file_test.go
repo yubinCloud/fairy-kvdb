@@ -2,23 +2,24 @@ package data
 
 import (
 	"fairy-kvdb/data"
+	"fairy-kvdb/fio"
 	"fairy-kvdb/test"
 	"github.com/stretchr/testify/assert"
 	"testing"
 )
 
 func TestOpenDataFile(t *testing.T) {
-	df1, err := data.OpenDataFile(test.TempDirPath, 0)
+	df1, err := data.OpenDataFile(test.TempDirPath, 0, fio.StandardFIO)
 	assert.Nil(t, err)
 	assert.NotNil(t, df1)
 
-	df2, err := data.OpenDataFile(test.TempDirPath, 111)
+	df2, err := data.OpenDataFile(test.TempDirPath, 111, fio.StandardFIO)
 	assert.Nil(t, err)
 	assert.NotNil(t, df2)
 }
 
 func TestDataFile_Write(t *testing.T) {
-	df, err := data.OpenDataFile(test.TempDirPath, 0)
+	df, err := data.OpenDataFile(test.TempDirPath, 0, fio.StandardFIO)
 	assert.Nil(t, err)
 	assert.NotNil(t, df)
 
@@ -30,7 +31,7 @@ func TestDataFile_Write(t *testing.T) {
 }
 
 func TestDataFile_Close(t *testing.T) {
-	df, err := data.OpenDataFile(test.TempDirPath, 0)
+	df, err := data.OpenDataFile(test.TempDirPath, 0, fio.StandardFIO)
 	assert.Nil(t, err)
 	assert.NotNil(t, df)
 
@@ -39,7 +40,7 @@ func TestDataFile_Close(t *testing.T) {
 }
 
 func TestDataFile_Sync(t *testing.T) {
-	df, err := data.OpenDataFile(test.TempDirPath, 0)
+	df, err := data.OpenDataFile(test.TempDirPath, 0, fio.StandardFIO)
 	assert.Nil(t, err)
 	assert.NotNil(t, df)
 
@@ -48,7 +49,7 @@ func TestDataFile_Sync(t *testing.T) {
 }
 
 func TestDataFile_ReadLogRecord(t *testing.T) {
-	df, err := data.OpenDataFile(test.TempDirPath, 222)
+	df, err := data.OpenDataFile(test.TempDirPath, 222, fio.StandardFIO)
 	assert.Nil(t, err)
 	assert.NotNil(t, df)
 

@@ -29,13 +29,13 @@ func GetDataFilePath(dirPath string, fileId uint32) string {
 }
 
 // OpenDataFile 打开一个新的数据文件
-func OpenDataFile(dirPath string, fileId uint32) (*DataFile, error) {
+func OpenDataFile(dirPath string, fileId uint32, ioType fio.FileIOType) (*DataFile, error) {
 	path := GetDataFilePath(dirPath, fileId)
-	return newDataFile(path, fileId)
+	return newDataFile(path, fileId, ioType)
 }
 
-func newDataFile(filePath string, fileId uint32) (*DataFile, error) {
-	ioManager, err := fio.NewIOManager(filePath)
+func newDataFile(filePath string, fileId uint32, ioType fio.FileIOType) (*DataFile, error) {
+	ioManager, err := fio.NewIOManager(filePath, ioType)
 	if err != nil {
 		return nil, err
 	}
@@ -118,6 +118,21 @@ func (df *DataFile) Close() error {
 	return df.IoManger.Close()
 }
 
+func (df *DataFile) SetIOManager(dirPath string, ioType fio.FileIOType) error {
+	// 关闭旧的 IOManager
+	if err := df.IoManger.Close(); err != nil {
+		return err
+	}
+	// 创建新的 IOManager
+	ioManager, err := fio.NewIOManager(GetDataFilePath(dirPath, df.FileId), ioType)
+	if err != nil {
+		return err
+	}
+	// 新旧替换
+	df.IoManger = ioManager
+	return nil
+}
+
 func (df *DataFile) readNBytes(n int64, offset int64) ([]byte, error) {
 	buf := make([]byte, n)
 	_, err := df.IoManger.Read(buf, offset)
@@ -127,13 +142,13 @@ func (df *DataFile) readNBytes(n int64, offset int64) ([]byte, error) {
 // OpenHintFile 打开一个新的 hint 索引文件
 func OpenHintFile(dirPath string) (*DataFile, error) {
 	filePath := filepath.Join(dirPath, HintFileName)
-	return newDataFile(filePath, 0)
+	return newDataFile(filePath, 0, fio.StandardFIO)
 }
 
 // OpenMergeFinishedFile 打开（或创建）一个新的 merge 完成标志文件
 func OpenMergeFinishedFile(dirPath string) (*DataFile, error) {
 	filePath := filepath.Join(dirPath, MergeFinishedFileName)
-	return newDataFile(filePath, 0)
+	return newDataFile(filePath, 0, fio.StandardFIO)
 }
 
 // WriteHintRecord 写入 hint 索引记录
@@ -150,7 +165,7 @@ func (df *DataFile) WriteHintRecord(key []byte, pos *LogRecordPos) error {
 // 对于 DB 启动时不需要遍历数据日志文件的索引类型，需要借用此文件来存储 batch transaction 序列号，比如 BPlusTreeIndex
 func OpenBtsnFile(dirPath string) (*DataFile, error) {
 	filePath := filepath.Join(dirPath, BtsnFileName)
-	return newDataFile(filePath, 0)
+	return newDataFile(filePath, 0, fio.StandardFIO)
 }
 
 func (df *DataFile) WriteBtsnRecord(btsn uint64) error {

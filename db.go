@@ -3,6 +3,7 @@ package fairy_kvdb
 import (
 	"errors"
 	"fairy-kvdb/data"
+	"fairy-kvdb/fio"
 	"fairy-kvdb/index"
 	"fmt"
 	"github.com/gofrs/flock"
@@ -30,6 +31,7 @@ type DB struct {
 	btsnFileExists bool         // 标识 btsn file 是否存在
 	isPureBoot     bool         // 是否是纯净启动，也就是启动时数据目录下没有任何数据
 	fileLock       *flock.Flock // 文件锁，保证多进程之间的互斥
+	bytesWrite     uint64       // 在数据文件中累计写了多少字节（用于决定什么时候同步）
 }
 
 // Open 打开存储引擎实例
@@ -73,6 +75,7 @@ func Open(options Options) (*DB, error) {
 		nextBTSN:   1,
 		isPureBoot: isPureBoot,
 		fileLock:   fileLock,
+		bytesWrite: 0,
 	}
 	// 在加载数据文件之前，先加载 merge 目录的文件，将 merge 的结果先合并到数据文件目录中
 	if err := db.loadMergeFiles(); err != nil {
@@ -92,6 +95,12 @@ func Open(options Options) (*DB, error) {
 		// 从数据文件中加载索引
 		if err := db.loadIndexFromDataFiles(fileIds); err != nil {
 			return nil, err
+		}
+		// 如果采用 mmap 加载数据文件，那么需要在完成加载后将所加载的文件变为 StandardIO
+		if options.MMapAtStartup {
+			if err := db.resetIOType(); err != nil {
+				return nil, err
+			}
 		}
 	} else {
 		// B+树索引需要从 btsn file 中取出保存的 NextBTSN 值
@@ -332,14 +341,16 @@ func (db *DB) appendLogRecord(logRecord *data.LogRecord) (*data.LogRecordPos, er
 	if err := db.activeFile.Write(encoded); err != nil {
 		return nil, err
 	}
+	db.bytesWrite += uint64(length)
 
 	// 根据用户配置的持久化策略，将 LogRecordPos 持久化到磁盘中
-	if db.options.SyncEveryWrite {
+	needSync := db.options.SyncEveryWrite || db.bytesWrite > db.options.BytesPerSync
+	if needSync {
+		db.bytesWrite = 0 // 清空累计值
 		if err := db.activeFile.Sync(); err != nil {
 			return nil, err
 		}
 	}
-
 	// 返回 LogRecordPos
 	pos := &data.LogRecordPos{
 		Fid:    db.activeFile.FileId,
@@ -356,7 +367,7 @@ func (db *DB) setActiveFile() error {
 		initialFid = db.activeFile.FileId + 1
 	}
 	// 打开一个新的数据文件
-	dataFile, err := data.OpenDataFile(db.options.DataDir, initialFid)
+	dataFile, err := data.OpenDataFile(db.options.DataDir, initialFid, fio.StandardFIO)
 	if err != nil {
 		return err
 	}
@@ -389,8 +400,12 @@ func (db *DB) loadDataFiles() (fileIds []uint32, err error) {
 	})
 
 	// 遍历文件 ID，加载数据文件
+	ioType := fio.StandardFIO
+	if db.options.MMapAtStartup {
+		ioType = fio.MemoryMapIO
+	}
 	for i, fileId := range fileIds {
-		dataFile, err := data.OpenDataFile(db.options.DataDir, fileId)
+		dataFile, err := data.OpenDataFile(db.options.DataDir, fileId, ioType)
 		if err != nil {
 			return fileIds, err
 		}
@@ -543,5 +558,19 @@ func (db *DB) loadNextBSTN() error {
 		return err
 	}
 	db.nextBTSN = bstn
+	return nil
+}
+
+// 将数据文件的 IO 类型设置为 standard io
+func (db *DB) resetIOType() error {
+	if db.activeFile == nil {
+		return nil
+	}
+	// 将 old files 转为 StandardIO
+	for _, dataFile := range db.olderFiles {
+		if err := dataFile.SetIOManager(db.options.DataDir, fio.StandardFIO); err != nil {
+			return err
+		}
+	}
 	return nil
 }

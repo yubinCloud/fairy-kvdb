@@ -7,11 +7,13 @@ import (
 )
 
 type Options struct {
-	DataDir            string // 数据库数据目录
-	MaxFileSize        int64  // 数据文件最大大小
-	SyncEveryWrite     bool   // 是否每次写入都同步
-	IndexType          int8   // 索引类型
-	BPlusTreeIndexOpts *index.BPlusTreeIndexOptions
+	DataDir            string                       // 数据库数据目录
+	MaxFileSize        int64                        // 数据文件最大大小
+	SyncEveryWrite     bool                         // 是否每次写入都同步
+	BytesPerSync       uint64                       // 每次累计到多少字节数才同步一次
+	IndexType          int8                         // 索引类型
+	BPlusTreeIndexOpts *index.BPlusTreeIndexOptions // 当 index 选择 B+Tree 时的配置项
+	MMapAtStartup      bool                         // 是否在启动时是否使用 mmap 来加载数据文件
 }
 
 type IteratorOptions struct {
@@ -27,6 +29,7 @@ var DefaultOptions = Options{
 	SyncEveryWrite:     false,
 	IndexType:          int8(index.BTreeIndexer),
 	BPlusTreeIndexOpts: nil,
+	MMapAtStartup:      true,
 }
 
 var DefaultIteratorOptions = IteratorOptions{
