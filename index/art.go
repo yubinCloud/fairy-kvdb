@@ -22,11 +22,14 @@ func NewAdaptiveRadixTreeIndex() *AdaptiveRadixTreeIndex {
 	}
 }
 
-func (art *AdaptiveRadixTreeIndex) Put(key []byte, pos *data.LogRecordPos) bool {
+func (art *AdaptiveRadixTreeIndex) Put(key []byte, pos *data.LogRecordPos) *data.LogRecordPos {
 	art.mu.Lock()
-	art.tree.Insert(key, pos)
+	ov, _ := art.tree.Insert(key, pos)
 	art.mu.Unlock()
-	return true
+	if ov == nil {
+		return nil
+	}
+	return ov.(*data.LogRecordPos)
 }
 
 func (art *AdaptiveRadixTreeIndex) Get(key []byte) *data.LogRecordPos {
@@ -39,11 +42,14 @@ func (art *AdaptiveRadixTreeIndex) Get(key []byte) *data.LogRecordPos {
 	return pos.(*data.LogRecordPos)
 }
 
-func (art *AdaptiveRadixTreeIndex) Delete(key []byte) bool {
+func (art *AdaptiveRadixTreeIndex) Delete(key []byte) (*data.LogRecordPos, bool) {
 	art.mu.Lock()
-	_, ok := art.tree.Delete(key)
+	ov, ok := art.tree.Delete(key)
 	art.mu.Unlock()
-	return ok
+	if ov == nil {
+		return nil, false
+	}
+	return ov.(*data.LogRecordPos), ok
 }
 
 func (art *AdaptiveRadixTreeIndex) Size() int {

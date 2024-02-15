@@ -31,8 +31,10 @@ func TestAdaptiveRadixTreeIndex_Basic(t *testing.T) {
 	assert.Equal(t, uint32(2), pos3.Fid)
 	assert.Equal(t, int64(13), pos3.Offset)
 	// case: 删除 key
-	ok := artIndex.Delete([]byte("key-1"))
+	res1, ok := artIndex.Delete([]byte("key-1"))
 	assert.True(t, ok)
+	assert.Equal(t, uint32(2), res1.Fid)
+	assert.Equal(t, int64(13), res1.Offset)
 	pos4 := artIndex.Get([]byte("key-1"))
 	assert.Nil(t, pos4)
 	pos5 := artIndex.Get([]byte("key-2"))
@@ -41,8 +43,9 @@ func TestAdaptiveRadixTreeIndex_Basic(t *testing.T) {
 	assert.Equal(t, int64(15), pos5.Offset)
 	assert.Equal(t, 1, artIndex.Size())
 	// case: 重复删除
-	ok2 := artIndex.Delete([]byte("key-1"))
+	res2, ok2 := artIndex.Delete([]byte("key-1"))
 	assert.False(t, ok2)
+	assert.Nil(t, res2)
 }
 
 func TestAdaptiveRadixTreeIndex_Iterator(t *testing.T) {

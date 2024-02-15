@@ -42,15 +42,20 @@ func NewBPlusTreeIndex(options *BPlusTreeIndexOptions) *BPlusTreeIndex {
 	}
 }
 
-func (bpt *BPlusTreeIndex) Put(key []byte, pos *data.LogRecordPos) bool {
+func (bpt *BPlusTreeIndex) Put(key []byte, pos *data.LogRecordPos) *data.LogRecordPos {
+	var ov []byte // old value
 	err := bpt.tree.Update(func(tx *bbolt.Tx) error {
 		bucket := tx.Bucket([]byte(indexBucketName))
+		ov = bucket.Get(key)
 		return bucket.Put(key, data.EncodeLogRecordPos(pos))
 	})
 	if err != nil {
 		panic("failed to put data into bpTree")
 	}
-	return true
+	if len(ov) == 0 {
+		return nil
+	}
+	return data.DecodeLogRecordPos(ov)
 }
 
 func (bpt *BPlusTreeIndex) Get(key []byte) *data.LogRecordPos {
@@ -69,13 +74,12 @@ func (bpt *BPlusTreeIndex) Get(key []byte) *data.LogRecordPos {
 	return pos
 }
 
-func (bpt *BPlusTreeIndex) Delete(key []byte) bool {
-	isExists := false
+func (bpt *BPlusTreeIndex) Delete(key []byte) (*data.LogRecordPos, bool) {
+	var ov []byte
 	err := bpt.tree.Update(func(tx *bbolt.Tx) error {
 		bucket := tx.Bucket([]byte(indexBucketName))
-		rawValue := bucket.Get(key) // 注意这里需要将 Get 和下面的 Delete 放在一个 txn 中执行
-		if len(rawValue) != 0 {
-			isExists = true
+		ov = bucket.Get(key) // 注意这里需要将 Get 和下面的 Delete 放在一个 txn 中执行
+		if len(ov) != 0 {
 			return bucket.Delete(key)
 		}
 		return nil
@@ -83,7 +87,10 @@ func (bpt *BPlusTreeIndex) Delete(key []byte) bool {
 	if err != nil {
 		panic("failed to delete data from bpTree")
 	}
-	return isExists
+	if len(ov) == 0 {
+		return nil, false
+	}
+	return data.DecodeLogRecordPos(ov), true
 }
 
 func (bpt *BPlusTreeIndex) Size() int {

@@ -49,8 +49,9 @@ func TestBPlusTreeIndex_Basic(t *testing.T) {
 	// case: Delete
 	for i := 0; i < count; i++ {
 		if i%2 == 0 {
-			ok := bpt.Delete([]byte(fmt.Sprintf("key%d", i)))
+			ov, ok := bpt.Delete([]byte(fmt.Sprintf("key%d", i)))
 			assert.True(t, ok)
+			assert.Equal(t, uint32(i), ov.Fid)
 		}
 	}
 	for i := 0; i < count; i++ {
@@ -65,11 +66,14 @@ func TestBPlusTreeIndex_Basic(t *testing.T) {
 	}
 	for i := 0; i < count; i++ {
 		if i%2 == 0 {
-			ok := bpt.Delete([]byte(fmt.Sprintf("key%d", i)))
+			ov, ok := bpt.Delete([]byte(fmt.Sprintf("key%d", i)))
 			assert.False(t, ok)
+			assert.Nil(t, ov)
 		}
 	}
 	assert.Equal(t, count/2, bpt.Size())
+	ok := bpt.Close()
+	assert.Nil(t, ok)
 }
 
 func TestBPlusTreeIndex_Iterator(t *testing.T) {

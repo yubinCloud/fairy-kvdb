@@ -14,28 +14,29 @@ func TestBTree_Put(t *testing.T) {
 		Fid:    1,
 		Offset: 100,
 	})
-	assert.True(t, res1)
+	assert.Nil(t, res1)
 
 	res2 := bt.Put([]byte("a"), &data.LogRecordPos{
 		Fid:    1,
 		Offset: 2,
 	})
-	assert.True(t, res2)
+	assert.Nil(t, res2)
 }
 
 func TestBTree_Get(t *testing.T) {
 	bt := index.NewBTree()
 
 	res1 := bt.Put(nil, &data.LogRecordPos{Fid: 1, Offset: 100})
-	assert.True(t, res1)
+	assert.Nil(t, res1)
 	pos1 := bt.Get(nil)
 	assert.Equal(t, uint32(1), pos1.Fid)
 	assert.Equal(t, int64(100), pos1.Offset)
 
 	res2 := bt.Put([]byte("a"), &data.LogRecordPos{Fid: 1, Offset: 2})
-	assert.True(t, res2)
+	assert.Nil(t, res2)
 	res3 := bt.Put([]byte("a"), &data.LogRecordPos{Fid: 1, Offset: 3})
-	assert.True(t, res3)
+	assert.NotNil(t, res3)
+	assert.Equal(t, int64(2), res3.Offset)
 
 	pos2 := bt.Get([]byte("a"))
 	assert.Equal(t, uint32(1), pos2.Fid)
@@ -46,17 +47,23 @@ func TestBTree_Delete(t *testing.T) {
 	bt := index.NewBTree()
 
 	res1 := bt.Put(nil, &data.LogRecordPos{Fid: 1, Offset: 100})
-	assert.True(t, res1)
-	res2 := bt.Delete(nil)
-	assert.True(t, res2)
+	assert.Nil(t, res1)
+	res2, ok := bt.Delete(nil)
+	assert.NotNil(t, res2)
+	assert.Equal(t, int64(100), res2.Offset)
+	assert.True(t, ok)
 
 	KEY2 := []byte("a")
 	res3 := bt.Put(KEY2, &data.LogRecordPos{Fid: 1, Offset: 100})
-	assert.True(t, res3)
-	res4 := bt.Delete(KEY2)
-	assert.True(t, res4)
+	assert.Nil(t, res3)
+	res4, ok := bt.Delete(KEY2)
+	assert.NotNil(t, res4)
+	assert.Equal(t, int64(100), res4.Offset)
+	assert.True(t, ok)
 
-	assert.False(t, bt.Delete([]byte("ccc")))
+	res5, ok := bt.Delete([]byte("ccc"))
+	assert.Nil(t, res5)
+	assert.False(t, ok)
 }
 
 func TestBTree_Size(t *testing.T) {

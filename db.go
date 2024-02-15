@@ -142,10 +142,7 @@ func (db *DB) Put(key []byte, value []byte) error {
 		return err
 	}
 	// 将 LogRecordPos 更新到内存索引中
-	if ok := db.index.Put(key, pos); !ok {
-		return ErrorIndexUpdateFailed
-	}
-
+	db.index.Put(key, pos)
 	return nil
 }
 
@@ -173,9 +170,7 @@ func (db *DB) Delete(key []byte) error {
 		return err
 	}
 	// 将 key 从内存索引中删除
-	if ok := db.index.Delete(key); !ok {
-		return ErrorIndexUpdateFailed
-	}
+	db.index.Delete(key)
 	return nil
 }
 
@@ -519,9 +514,11 @@ func (db *DB) loadIndexFromOneDataFile(dataFile *data.DataFile, loadContext *dbO
 
 func (db *DB) redoLogRecord(record *data.LogRecord, pos *data.LogRecordPos) bool {
 	if record.Type == data.LogRecordNormal {
-		return db.index.Put(record.Key, pos)
+		db.index.Put(record.Key, pos)
+		return true
 	} else if record.Type == data.LogRecordDelete {
-		return db.index.Delete(record.Key)
+		db.index.Delete(record.Key)
+		return true
 	}
 	return false
 }

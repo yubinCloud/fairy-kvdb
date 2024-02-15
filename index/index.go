@@ -7,13 +7,13 @@ import (
 // Indexer abstract index interface
 type Indexer interface {
 	// Put 向索引中存储 key 对应的数据位置信息
-	Put(key []byte, pos *data.LogRecordPos) bool
+	Put(key []byte, pos *data.LogRecordPos) *data.LogRecordPos
 
 	// Get 根据 key 取出对应的索引位置信息
 	Get(key []byte) *data.LogRecordPos
 
 	// Delete 删除 key
-	Delete(key []byte) bool
+	Delete(key []byte) (*data.LogRecordPos, bool)
 
 	// Size 返回索引中的数据量
 	Size() int
