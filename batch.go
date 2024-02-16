@@ -117,10 +117,14 @@ func (wb *WriteBatch) Commit() error {
 	}
 	// 更新内存索引
 	for record, pos := range positions {
+		var oldPos *data.LogRecordPos
 		if record.Type == data.LogRecordDelete {
-			wb.db.index.Delete(record.Key)
+			oldPos, _ = wb.db.index.Delete(record.Key)
 		} else {
-			wb.db.index.Put(record.Key, pos)
+			oldPos = wb.db.index.Put(record.Key, pos)
+		}
+		if oldPos != nil {
+			wb.db.increaseReclaimSize(oldPos.Sz)
 		}
 	}
 	// 清空暂存数据

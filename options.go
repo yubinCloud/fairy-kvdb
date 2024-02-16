@@ -14,6 +14,7 @@ type Options struct {
 	IndexType          int8                         // 索引类型
 	BPlusTreeIndexOpts *index.BPlusTreeIndexOptions // 当 index 选择 B+Tree 时的配置项
 	MMapAtStartup      bool                         // 是否在启动时是否使用 mmap 来加载数据文件
+	MergeRatio         float64                      // 无效数据达到多少比例才进行 merge
 }
 
 type IteratorOptions struct {
@@ -30,6 +31,7 @@ var DefaultOptions = Options{
 	IndexType:          int8(index.BTreeIndexer),
 	BPlusTreeIndexOpts: nil,
 	MMapAtStartup:      true,
+	MergeRatio:         0.4,
 }
 
 var DefaultIteratorOptions = IteratorOptions{

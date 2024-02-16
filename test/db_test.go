@@ -188,3 +188,49 @@ func TestDB_FileLock(t *testing.T) {
 	err = db.Close()
 	assert.Nil(t, err)
 }
+
+func TestDB_Stat(t *testing.T) {
+	options := fairydb.DefaultOptions
+	ClearDatabaseDir(options.DataDir)
+	db, err := fairydb.Open(options)
+	assert.Nil(t, err)
+	assert.NotNil(t, db)
+
+	err = db.Put([]byte("name"), []byte("zhangSan"))
+	assert.Nil(t, err)
+	err = db.Put([]byte("age"), []byte("18"))
+	assert.Nil(t, err)
+	err = db.Put([]byte("sex"), []byte("1"))
+	assert.Nil(t, err)
+	err = db.Delete([]byte("name"))
+	assert.Nil(t, err)
+
+	stat := db.Stat()
+	assert.Equal(t, uint(2), stat.KeyNum)
+	assert.Less(t, uint64(0), stat.ReclaimableSize)
+
+	err = db.Close()
+	ClearDatabaseDir(options.DataDir)
+	assert.Nil(t, err)
+
+	db2, err := fairydb.Open(options)
+	assert.Nil(t, err)
+	assert.NotNil(t, db2)
+
+	err = db2.Put([]byte("name"), []byte("zhangSan"))
+	assert.Nil(t, err)
+	err = db2.Put([]byte("age"), []byte("18"))
+	assert.Nil(t, err)
+	err = db2.Put([]byte("sex"), []byte("1"))
+	assert.Nil(t, err)
+	err = db2.Put([]byte("name"), []byte("liSi"))
+	assert.Nil(t, err)
+
+	stat = db2.Stat()
+	assert.Equal(t, uint(3), stat.KeyNum)
+	assert.Less(t, uint64(0), stat.ReclaimableSize)
+
+	err = db2.Close()
+	assert.Nil(t, err)
+	ClearDatabaseDir(options.DataDir)
+}

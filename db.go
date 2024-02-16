@@ -5,6 +5,7 @@ import (
 	"fairy-kvdb/data"
 	"fairy-kvdb/fio"
 	"fairy-kvdb/index"
+	"fairy-kvdb/utils"
 	"fmt"
 	"github.com/gofrs/flock"
 	"io"
@@ -32,6 +33,14 @@ type DB struct {
 	isPureBoot     bool         // 是否是纯净启动，也就是启动时数据目录下没有任何数据
 	fileLock       *flock.Flock // 文件锁，保证多进程之间的互斥
 	bytesWrite     uint64       // 在数据文件中累计写了多少字节（用于决定什么时候同步）
+	reclaimSize    uint64       // 表示有多少数据是无效的，可以用于决定什么时候进行 merge
+}
+
+type Stat struct {
+	KeyNum          uint   // key 的总数量
+	DataFileNum     uint   // 数据文件的数量
+	ReclaimableSize uint64 // 可以进行 merge 回收的数据量，以字节为单位
+	DiskSize        int64  // 数据目录所占磁盘空间的大小
 }
 
 // Open 打开存储引擎实例
@@ -142,7 +151,10 @@ func (db *DB) Put(key []byte, value []byte) error {
 		return err
 	}
 	// 将 LogRecordPos 更新到内存索引中
-	db.index.Put(key, pos)
+	if oldPos := db.index.Put(key, pos); oldPos != nil {
+		db.increaseReclaimSize(oldPos.Sz)
+	}
+
 	return nil
 }
 
@@ -170,7 +182,13 @@ func (db *DB) Delete(key []byte) error {
 		return err
 	}
 	// 将 key 从内存索引中删除
-	db.index.Delete(key)
+	oldPos, ok := db.index.Delete(key)
+	if !ok {
+		return ErrorIndexUpdateFailed
+	}
+	if oldPos != nil {
+		db.increaseReclaimSize(oldPos.Sz)
+	}
 	return nil
 }
 
@@ -280,6 +298,28 @@ func (db *DB) Sync() error {
 	return db.activeFile.Sync()
 }
 
+// Stat 计算数据库统计信息
+func (db *DB) Stat() *Stat {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+	// 计算 dataFileNum
+	dataFileNum := uint(len(db.olderFiles))
+	if db.activeFile != nil {
+		dataFileNum++
+	}
+	// 计算 dirSize
+	dirSize, err := utils.DirSize(db.options.DataDir)
+	if err != nil {
+		panic(fmt.Sprintf("failed to get the size of the directory, %v", err))
+	}
+	return &Stat{
+		KeyNum:          uint(db.index.Size()),
+		DataFileNum:     dataFileNum,
+		ReclaimableSize: db.reclaimSize,
+		DiskSize:        dirSize,
+	}
+}
+
 // FetchNextBTSN 获取下一个 BTSN
 func (db *DB) FetchNextBTSN() uint64 {
 	nextLSN := atomic.AddUint64(&db.nextBTSN, 1)
@@ -350,6 +390,7 @@ func (db *DB) appendLogRecord(logRecord *data.LogRecord) (*data.LogRecordPos, er
 	pos := &data.LogRecordPos{
 		Fid:    db.activeFile.FileId,
 		Offset: writeOffset,
+		Sz:     uint64(length),
 	}
 	return pos, nil
 }
@@ -514,10 +555,16 @@ func (db *DB) loadIndexFromOneDataFile(dataFile *data.DataFile, loadContext *dbO
 
 func (db *DB) redoLogRecord(record *data.LogRecord, pos *data.LogRecordPos) bool {
 	if record.Type == data.LogRecordNormal {
-		db.index.Put(record.Key, pos)
+		oldPos := db.index.Put(record.Key, pos)
+		if oldPos != nil {
+			db.increaseReclaimSize(oldPos.Sz)
+		}
 		return true
 	} else if record.Type == data.LogRecordDelete {
-		db.index.Delete(record.Key)
+		oldPos, _ := db.index.Delete(record.Key)
+		if oldPos != nil {
+			db.increaseReclaimSize(oldPos.Sz)
+		}
 		return true
 	}
 	return false
@@ -530,6 +577,9 @@ func checkOptions(options *Options) error {
 	}
 	if options.MaxFileSize <= 0 {
 		return errors.New("max file size is invalid")
+	}
+	if options.MergeRatio < 0 || options.MergeRatio > 1 {
+		return errors.New("invalid merge ratio, must between 0 and 1")
 	}
 	return nil
 }
@@ -570,4 +620,8 @@ func (db *DB) resetIOType() error {
 		}
 	}
 	return nil
+}
+
+func (db *DB) increaseReclaimSize(sz uint64) {
+	atomic.AddUint64(&db.reclaimSize, sz)
 }

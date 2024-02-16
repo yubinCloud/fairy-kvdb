@@ -3,6 +3,7 @@ package fairy_kvdb
 import (
 	"encoding/binary"
 	"fairy-kvdb/data"
+	"fairy-kvdb/utils"
 	"io"
 	"os"
 	"path/filepath"
@@ -21,12 +22,23 @@ func (db *DB) Merge() error {
 	if db.activeFile == nil {
 		return nil
 	}
+
 	// 检查是否有其他进程正在 merge
 	if ok := atomic.CompareAndSwapInt32(&db.isMerging, 0, 1); !ok {
 		return ErrorMergeIsProgress
 	}
 	defer atomic.StoreInt32(&db.isMerging, 0)
 	db.mu.Lock()
+	// 先检查一下是否需要 merge，也就是是否达到了 merge ratio
+	dirSize, err := utils.DirSize(db.options.DataDir)
+	if err != nil {
+		db.mu.Unlock()
+		return err
+	}
+	if float64(db.reclaimSize)/float64(dirSize) < db.options.MergeRatio {
+		db.mu.Unlock()
+		return ErrorMergeRatioUnreached
+	}
 	// 持久化当前活跃文件，并新建一个活跃文件
 	if err := db.activeFile.Sync(); err != nil {
 		db.mu.Unlock()
