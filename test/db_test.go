@@ -5,8 +5,10 @@ import (
 	"fairy-kvdb/index"
 	"fmt"
 	"github.com/stretchr/testify/assert"
+	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestDB_ListKeys(t *testing.T) {
@@ -233,4 +235,44 @@ func TestDB_Stat(t *testing.T) {
 	err = db2.Close()
 	assert.Nil(t, err)
 	ClearDatabaseDir(options.DataDir)
+}
+
+func TestDB_Backup(t *testing.T) {
+	options := fairydb.DefaultOptions
+	ClearDatabaseDir(options.DataDir)
+	db, err := fairydb.Open(options)
+	assert.Nil(t, err)
+	assert.NotNil(t, db)
+
+	err = db.Put([]byte("name"), []byte("zhangSan"))
+	assert.Nil(t, err)
+	err = db.Put([]byte("age"), []byte("18"))
+	assert.Nil(t, err)
+
+	err = db.Sync()
+	assert.Nil(t, err)
+
+	backupDir := filepath.Join(os.TempDir(), "fairy-kvdb-bk")
+	err = db.CopyBackup(backupDir)
+	assert.Nil(t, err)
+
+	err = db.Close()
+	assert.Nil(t, err)
+	ClearDatabaseDir(options.DataDir)
+
+	options.DataDir = backupDir
+	backupDB, err := fairydb.Open(options)
+	assert.Nil(t, err)
+	assert.NotNil(t, backupDB)
+	value1, err := backupDB.Get([]byte("name"))
+	assert.Nil(t, err)
+	assert.Equal(t, "zhangSan", string(value1))
+	value2, err := backupDB.Get([]byte("age"))
+	assert.Nil(t, err)
+	assert.Equal(t, "18", string(value2))
+
+	err = backupDB.Close()
+	assert.Nil(t, err)
+	time.Sleep(time.Second * 2)
+	ClearDatabaseDir(backupDir)
 }

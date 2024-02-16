@@ -30,7 +30,7 @@ var DefaultOptions = Options{
 	SyncEveryWrite:     false,
 	IndexType:          int8(index.BTreeIndexer),
 	BPlusTreeIndexOpts: nil,
-	MMapAtStartup:      true,
+	MMapAtStartup:      false,
 	MergeRatio:         0.4,
 }
 

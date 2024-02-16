@@ -23,22 +23,22 @@ func NewMMapIOManager(filename string) (*MMapIO, error) {
 	return &MMapIO{readerAt: readerAt}, nil
 }
 
-func (mmap *MMapIO) Read(buf []byte, offset int64) (int, error) {
-	return mmap.readerAt.ReadAt(buf, offset)
+func (mpi *MMapIO) Read(buf []byte, offset int64) (int, error) {
+	return mpi.readerAt.ReadAt(buf, offset)
 }
 
-func (mmap *MMapIO) Write(buf []byte) (int, error) {
+func (mpi *MMapIO) Write(buf []byte) (int, error) {
 	return 0, nil
 }
 
-func (mmap *MMapIO) Sync() error {
+func (mpi *MMapIO) Sync() error {
 	return nil
 }
 
-func (mmap *MMapIO) Size() (int64, error) {
-	return int64(mmap.readerAt.Len()), nil
+func (mpi *MMapIO) Size() (int64, error) {
+	return int64(mpi.readerAt.Len()), nil
 }
 
-func (mmap *MMapIO) Close() error {
-	return mmap.readerAt.Close()
+func (mpi *MMapIO) Close() error {
+	return mpi.readerAt.Close()
 }

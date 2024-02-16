@@ -320,6 +320,14 @@ func (db *DB) Stat() *Stat {
 	}
 }
 
+// CopyBackup 备份数据库，将数据文件拷贝到新的目录中
+func (db *DB) CopyBackup(backupDir string) error {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+	excludes := []string{fileLockName} // 需要排除的拷贝文件
+	return utils.CopyDir(db.options.DataDir, backupDir, excludes)
+}
+
 // FetchNextBTSN 获取下一个 BTSN
 func (db *DB) FetchNextBTSN() uint64 {
 	nextLSN := atomic.AddUint64(&db.nextBTSN, 1)
@@ -612,6 +620,10 @@ func (db *DB) loadNextBSTN() error {
 func (db *DB) resetIOType() error {
 	if db.activeFile == nil {
 		return nil
+	}
+	// 将 activeFile 转为 StandardIO
+	if err := db.activeFile.SetIOManager(db.options.DataDir, fio.StandardFIO); err != nil {
+		return err
 	}
 	// 将 old files 转为 StandardIO
 	for _, dataFile := range db.olderFiles {
