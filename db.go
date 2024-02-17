@@ -37,10 +37,10 @@ type DB struct {
 }
 
 type Stat struct {
-	KeyNum          uint   // key 的总数量
-	DataFileNum     uint   // 数据文件的数量
-	ReclaimableSize uint64 // 可以进行 merge 回收的数据量，以字节为单位
-	DiskSize        int64  // 数据目录所占磁盘空间的大小
+	KeyNum          uint   `json:"keyNum"`          // key 的总数量
+	DataFileNum     uint   `json:"dataFileNum"`     // 数据文件的数量
+	ReclaimableSize uint64 `json:"reclaimableSize"` // 可以进行 merge 回收的数据量，以字节为单位
+	DiskSize        int64  `json:"diskSize"`        // 数据目录所占磁盘空间的大小
 }
 
 // Open 打开存储引擎实例

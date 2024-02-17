@@ -1,0 +1,20 @@
+### Put KV
+PUT http://localhost:7250/basic/put
+Content-Type: application/json
+
+{
+  "name": "zhangSan",
+  "age": "18"
+}
+
+### Get KV
+GET http://localhost:7250/basic/get?key=name
+
+### Delete KV
+DELETE http://localhost:7250/basic/delete?key=name
+
+### Get all keys
+GET http://localhost:7250/basic/keys
+
+### Get stat
+GET http://localhost:7250/basic/stat
