@@ -1,9 +1,26 @@
 package redis
 
 import (
+	"encoding/binary"
 	"errors"
 	fairydb "fairy-kvdb"
 )
+
+// hashInternalKey 在 Hash 数据结构中，用于存储数据部分的 key 的组成结构
+type hashInternalKey struct {
+	key     []byte
+	version int64
+	field   []byte
+}
+
+func (hik *hashInternalKey) encode() []byte {
+	size := len(hik.key) + binary.MaxVarintLen64 + len(hik.field)
+	buf := make([]byte, size)
+	offset := copy(buf, hik.key)
+	offset += binary.PutVarint(buf[offset:], hik.version)
+	copy(buf[offset:], hik.field)
+	return buf
+}
 
 func (rds *DataStructure) HSet(key, field, value []byte) (bool, error) {
 	// 查找对应的元数据
